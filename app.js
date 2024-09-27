@@ -29,28 +29,21 @@ async function push() {
       throw new Error("Database connection failure");
     }
 
-    const results = await oracleDB.executeQuery(
-      "SELECT Customer_Number SMS_Message, PHONE_NUMBER FROM TBSMG_SMS_MESSAGE WHERE NVL(status,'N') = 'N'"
-    );
-    
-    const updatedEmployees = await Promise.all(results.map(async (result) => {
-      const { PHONE_NUMBER: phone, Customer_Number: custNo, SMS_Message: message } = result;
-      
+    const results = await oracleDB.executeQuery("SELECT Customer_Number, SMS_Message, PHONE_NUMBER FROM TBSMG_SMS_MESSAGE WHERE NVL(status,'N') = 'N'");
+     await Promise.all(results.map(async (result) => {
+      const { PHONE_NUMBER: phone, CUSTOMER_NUMBER: custNo, SMS_MESSAGE: message } = result;
       try {
         // Send SMS first
         const smsSent = await sendSMS(phone, message);
         
         if (smsSent) {
-          // Only update the status if SMS was sent successfully
+          console.log(`SMS sent successfully for customer with phone ${phone} and customerNumber ${custNo}`);
           const query = "INSERT INTO TBSMG_SENT_MESSAGES SELECT * FROM TBSMG_SMS_MESSAGE WHERE Customer_Number = :custNo AND PHONE_NUMBER = : phone";
           const updateResult = await oracleDB.executeQuery(query, [phone,custNo]);
-          logger.info(`Updated status for employee ID ${empid}. Rows affected: ${updateResult.rowsAffected}`);
-          
           return {
              phone,
             smsSent: true,
             custNo
-            // statusUpdated: updateResult.rowsAffected > 0
           };
         } else {
           logger.warn(`SMS sending failed for customer with phone ${phone}.`);
@@ -70,14 +63,13 @@ async function push() {
           };
       }
     }));
-
     logger.info('process completed');
   } catch (error) {
     logger.error('An error occurred:', error);
     console.error('An error occurred:', error);
   } finally {
     // Close database connection if needed
-    await oracleDB.close();
+    // await oracleDB.close();
     
     // Keep console open
     keepConsoleOpen();

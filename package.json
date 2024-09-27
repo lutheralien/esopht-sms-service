@@ -35,6 +35,7 @@
     ]
   },
   "devDependencies": {
+    "nodemon": "^3.1.7",
     "pkg": "^5.8.1"
   },
   "engines": {
