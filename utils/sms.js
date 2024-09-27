@@ -20,7 +20,8 @@ async function sendSMS(phoneNumber, message) {
                 'Content-Type': 'application/json',
             }
         });
-
+            console.log(response);
+            
         if (response.status === 200) {
             console.log('SMS sent successfully');
             return true;
@@ -33,7 +34,8 @@ async function sendSMS(phoneNumber, message) {
         return false;
     }
 }
-
+// sendSMS("020748724177","hi").then((res)=>console.log(res)).catch((err)=>console.log(err)
+// )
 module.exports = {
     sendSMS
 };

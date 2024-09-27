@@ -1,13 +1,7 @@
-const express = require('express');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const winston = require('winston');
-const expressWinston = require('express-winston');
 const oracleDB = require('./utils/oracle');
 const { sendSMS } = require('./utils/sms');
-
-const app = express();
-const port = process.env.PORT || 3000;
+const readline = require('readline');
 
 // Logging configuration
 const logger = winston.createLogger({
@@ -22,165 +16,85 @@ const logger = winston.createLogger({
   ]
 });
 
-// Custom console transport for SMS logs only
-const smsLogTransport = new winston.transports.Console({
-  format: winston.format.simple(),
-  level: 'info',
-  // Only log messages that include "SMS sent" or "Failed to send SMS"
-  log(info, callback) {
-    if (info.message.includes('SMS sent') || info.message.includes('Failed to send SMS')) {
-      console.log(info.message);
-    }
-    callback();
-  }
-});
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
 
-logger.add(smsLogTransport);
-
-// Middleware
-app.use(helmet());
-app.use(express.json());
-app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
-
-// Request logging (but not to console)
-app.use(expressWinston.logger({
-  winstonInstance: logger,
-  meta: true,
-  msg: "HTTP {{req.method}} {{req.url}}",
-  expressFormat: true,
-  colorize: false
-}));
-
-// Error logging (but not to console)
-app.use(expressWinston.errorLogger({
-  winstonInstance: logger
-}));
-
-// Function to check database connection
-const checkDatabaseConnection = async () => {
+async function push() {
   try {
     const isConnected = await oracleDB.testConnection();
     if (!isConnected) {
       throw new Error("Database connection failure");
     }
-    return true;
-  } catch (error) {
-    logger.error('Database connection error:', error);
-    return false;
-  }
-};
 
-// Routes
-app.post('/push', async (req, res, next) => {
-  try {
     const results = await oracleDB.executeQuery(
-      "SELECT phonenumber, employeeid FROM employee WHERE NVL(status,'N') = 'N'"
+      "SELECT Customer_Number SMS_Message, PHONE_NUMBER FROM TBSMG_SMS_MESSAGE WHERE NVL(status,'N') = 'N'"
     );
     
     const updatedEmployees = await Promise.all(results.map(async (result) => {
-      const { PHONENUMBER: phone, EMPLOYEEID: empid } = result;
-      const message = `Status update: Your employee record (phone: ${phone}) will be marked as processed.`;
+      const { PHONE_NUMBER: phone, Customer_Number: custNo, SMS_Message: message } = result;
       
       try {
         // Send SMS first
         const smsSent = await sendSMS(phone, message);
         
-        // Log SMS status
         if (smsSent) {
-          logger.info(`SMS sent successfully to ${phone} for employee ID ${empid}`);
+          // Only update the status if SMS was sent successfully
+          const query = "INSERT INTO TBSMG_SENT_MESSAGES SELECT * FROM TBSMG_SMS_MESSAGE WHERE Customer_Number = :custNo AND PHONE_NUMBER = : phone";
+          const updateResult = await oracleDB.executeQuery(query, [phone,custNo]);
+          logger.info(`Updated status for employee ID ${empid}. Rows affected: ${updateResult.rowsAffected}`);
+          
+          return {
+             phone,
+            smsSent: true,
+            custNo
+            // statusUpdated: updateResult.rowsAffected > 0
+          };
         } else {
-          logger.info(`Failed to send SMS to ${phone} for employee ID ${empid}`);
+          logger.warn(`SMS sending failed for customer with phone ${phone}.`);
+          return {
+            phone,
+            smsSent: true,
+            custNo
+          };
         }
-        
-        // Only update the status if SMS was sent successfully
-        let statusUpdated = false;
-        if (smsSent) {
-          const query = "UPDATE employee SET status = 'Y' WHERE employeeid = :empid";
-          const updateResult = await oracleDB.executeQuery(query, [empid]);
-          statusUpdated = updateResult.rowsAffected > 0;
-        }
-        
-        return {
-          employeeId: empid,
-          phoneNumber: phone,
-          smsSent,
-          statusUpdated
-        };
       } catch (error) {
-        logger.error(`Error processing employee ID ${empid}:`, error);
-        return {
-          employeeId: empid,
-          phoneNumber: phone,
-          smsSent: false,
-          statusUpdated: false,
-          error: error.message
-        };
+        logger.error(`Error processing Phone ${phone}:`, error);
+        logger.warn(`SMS sending failed for customer with phone ${phone}.`);
+          return {
+            phone,
+            smsSent: true,
+            custNo
+          };
       }
     }));
 
-    const verifyResults = await oracleDB.executeQuery("SELECT COUNT(*) AS COUNT FROM employee WHERE status = 'Y'");
-    const totalUpdated = verifyResults[0].COUNT;
-
-    res.json({
-      updatedEmployees,
-      totalEmployeesWithStatusY: totalUpdated
-    });
-
+    logger.info('process completed');
   } catch (error) {
-    next(error);
-  }
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  logger.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal Server Error' });
-});
-
-// Server startup function
-const startServer = async () => {
-  try {
-
-    const server = app.listen(port, () => {
-      console.log(`SMS Service for Esopht Technologies running on http://localhost:${port}`);
-    }).on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        console.error(`Error: Port ${port} is already in use. Close all applications and start this server again.`);
-        process.exit(1);
-      } else {
-        console.error('An error occurred while starting the server:', error);
-        process.exit(1);
-      }
-    });
-
-    const dbConnected = await checkDatabaseConnection();
-    if (!dbConnected) {
-      console.error('Failed to connect to the database. Exiting...');
-      process.exit(1);
-    }
-
+    logger.error('An error occurred:', error);
+    console.error('An error occurred:', error);
+  } finally {
+    // Close database connection if needed
+    await oracleDB.close();
     
-
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM signal received: closing HTTP server');
-      server.close(() => {
-        console.log('HTTP server closed');
-        // Close database connection if needed
-        // oracleDB.close();
-      });
-    });
-
-  } catch (error) {
-    console.error('An unexpected error occurred during server startup:', error);
-    process.exit(1);
+    // Keep console open
+    keepConsoleOpen();
   }
-};
+}
 
-// Start the server
-startServer();
+function keepConsoleOpen() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.question('Press Enter to exit...', () => {
+    rl.close();
+    process.exit(0);
+  });
+}
+
+// Run the script
+push();
