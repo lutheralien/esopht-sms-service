@@ -3,26 +3,34 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "start": "node index.js",
-    "build": "pkg ."
+    "start": "node app.js",
+    "build": "pkg . --target node14-win-x64 --output dist/sms-sender.exe"
   },
-  "author": "",
+  "author": "esopht-lutheralien",
   "license": "ISC",
-  "description": "",
+  "description": "SMS service application for Windows",
   "dependencies": {
     "axios": "^1.7.7",
     "oracledb": "^6.6.0"
   },
   "bin": "app.js",
   "pkg": {
-    "targets": [
-      "node14-win-x64",
-      "node14-linux-x64",
-      "node14-macos-x64"
+    "outputPath": "dist",
+    "assets": [
+      "node_modules/axios/**/*",
+      "node_modules/node-fetch/**/*",
+      "node_modules/oracledb/**/*"
     ],
-    "outputPath": "dist"
+    "scripts": [
+      "node_modules/axios/**/*.js",
+      "node_modules/node-fetch/**/*.js",
+      "node_modules/oracledb/**/*.js"
+    ]
   },
   "devDependencies": {
     "pkg": "^5.8.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
