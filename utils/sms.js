@@ -1,32 +1,24 @@
 const axios = require('axios');
 
 async function sendSMS(phoneNumber, message) {
-    const username = "esopht";
-    const password = "youroge1968";
-    const sender_id = "esopht";
-    const url = "https://sms.nalosolutions.com/smsbackend/clientapi/Resl_Nalo/send-message/";
+    const key = 'dDaK07CbVFx1C3oQ12JcLlxcp';
+    const sender_id = 'esopht';
+    const url = 'https://apps.mnotify.net/smsapi';
 
-    const body = {
-        msisdn: phoneNumber,
-        sender_id: sender_id,
-        message: message,
-        username: username,
-        password: password
-    };
+    const params = new URLSearchParams({
+        key,
+        to: phoneNumber,
+        msg: message,
+        sender_id
+    });
 
     try {
-        const response = await axios.post(url, body, {
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-            console.log(response);
-            
-        if (response.status === 200) {
-            console.log('SMS sent successfully');
+        const response = await axios.get(`${url}?${params.toString()}`);
+        if (response.data.status === 'success' && response.data.code === '1000') {
+            console.log('SMS sent successfully:', response.data.message);
             return true;
         } else {
-            console.error('Failed to send SMS:', response.data);
+            console.error('Failed to send SMS:', (response.data.message || "Invalid Number"));
             return false;
         }
     } catch (error) {
@@ -34,8 +26,10 @@ async function sendSMS(phoneNumber, message) {
         return false;
     }
 }
-// sendSMS("020748724177","hi").then((res)=>console.log(res)).catch((err)=>console.log(err)
-// )
+
+// Example usage:
+// sendSMS("1550748724", "Your OTP is 1").then(res => console.log(res)).catch(err => console.log(err));
+
 module.exports = {
     sendSMS
 };
